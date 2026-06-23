@@ -1,6 +1,12 @@
 import pandas as pd
-import numpy as np
 from typing import Dict, Any, List
+from backend.utils.metrics import (
+    calculate_missing_values,
+    calculate_missing_percentage,
+    calculate_duplicate_rows,
+    get_numerical_summary,
+    get_categorical_summary
+)
 
 class DataQualityAgent:
     """
@@ -121,18 +127,15 @@ class DataQualityAgent:
         Returns:
             Dict[str, Dict[str, Any]]: Mapping of column to count and percentage.
         """
-        total_rows = len(df)
-        missing_counts = df.isnull().sum()
-        
-        missing_info = {}
-        for col in df.columns:
-            count = int(missing_counts[col])
-            percentage = float((count / total_rows) * 100) if total_rows > 0 else 0.0
-            missing_info[str(col)] = {
-                "count": count,
-                "percentage": round(percentage, 2)
+        counts = calculate_missing_values(df)
+        percentages = calculate_missing_percentage(df)
+        return {
+            str(col): {
+                "count": counts[str(col)],
+                "percentage": percentages[str(col)]
             }
-        return missing_info
+            for col in df.columns
+        }
 
     def _get_duplicate_count(self, df: pd.DataFrame) -> int:
         """
@@ -144,7 +147,7 @@ class DataQualityAgent:
         Returns:
             int: Number of duplicate rows.
         """
-        return int(df.duplicated().sum())
+        return calculate_duplicate_rows(df)["count"]
 
     def _get_numerical_summary(self, df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         """
@@ -156,30 +159,7 @@ class DataQualityAgent:
         Returns:
             Dict[str, Dict[str, Any]]: Statistical summaries of numerical columns.
         """
-        numeric_df = df.select_dtypes(include=['number'])
-        summary = {}
-        
-        for col in numeric_df.columns:
-            col_series = numeric_df[col]
-            desc = col_series.describe()
-            
-            stats_dict = {}
-            for stat_name, val in desc.items():
-                if pd.notnull(val):
-                    if stat_name == 'count':
-                        stats_dict[stat_name] = int(val)
-                    else:
-                        stats_dict[stat_name] = float(val)
-                else:
-                    stats_dict[stat_name] = None
-            
-            # Map '50%' to 'median' for clarity
-            if '50%' in stats_dict:
-                stats_dict['median'] = stats_dict['50%']
-                
-            summary[str(col)] = stats_dict
-            
-        return summary
+        return get_numerical_summary(df)
 
     def _get_categorical_summary(self, df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         """
@@ -191,22 +171,4 @@ class DataQualityAgent:
         Returns:
             Dict[str, Dict[str, Any]]: Summary of categorical columns.
         """
-        cat_df = df.select_dtypes(include=['object', 'category', 'bool'])
-        summary = {}
-        
-        for col in cat_df.columns:
-            col_series = cat_df[col]
-            unique_count = int(col_series.nunique())
-            
-            value_counts = col_series.value_counts(dropna=False).head(5)
-            top_values = {}
-            for val, count in value_counts.items():
-                val_str = str(val) if pd.notnull(val) else "Missing"
-                top_values[val_str] = int(count)
-                
-            summary[str(col)] = {
-                "unique_count": unique_count,
-                "top_values": top_values
-            }
-            
-        return summary
+        return get_categorical_summary(df)
