@@ -4,6 +4,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.utils.dataset_loader import load_csv, get_dataset_info
+from backend.agents.data_quality_agent import DataQualityAgent
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -72,3 +73,43 @@ async def upload_file(file: UploadFile = File(...)):
         "filepath": file_path,
         "dataset_info": dataset_info
     }
+
+@app.post("/analyze-quality")
+async def analyze_quality(file: UploadFile = File(...)):
+    # Validate file extension
+    if not file.filename.endswith('.csv'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file type. Only CSV files are supported."
+        )
+
+    # Resolve saving path
+    file_path = os.path.join(upload_path, file.filename)
+    
+    # Save file to upload directory
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save uploaded file: {str(e)}"
+        )
+    finally:
+        file.file.close()
+
+    # Load file and run DataQualityAgent
+    try:
+        df = load_csv(file_path)
+        agent = DataQualityAgent()
+        report = agent.analyze(df)
+    except Exception as e:
+        # Clean up file on failure
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to analyze CSV file: {str(e)}"
+        )
+
+    return report
